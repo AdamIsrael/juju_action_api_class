@@ -1,13 +1,19 @@
 import jujuclient
 import os
 
+
 class Action():
-    def __init__(self, uid, data, juju_status):
+    def __init__(self, data):
         # I am undecided if we need this
         # model_id = ""
-        self.uuid = ""
+        self.uuid = data['action']['tag']
         self.data = data  # straight from juju api
-        self.juju_status = juju_status
+        self.juju_status = data['status']
+
+    @classmethod
+    def from_data(cls, data):
+        o = cls(data=data)
+        return o
 
 
 def get_service_units(status):
@@ -145,6 +151,25 @@ class API(object):
     def get_actions(self, service=None):
         return self.env.actions_list_all(service)
 
+    def get_action_status(self, action_tag):
+        '''
+        responds with the action status, which is one of three values:
+
+         - completed
+         - pending
+         - failed
+
+         @param action_tag - the action UUID return from the enqueue method
+         eg: action-3428e20d-fcd7-4911-803b-9b857a2e5ec9
+        '''
+        receiver = self.get_actions()
+        for receiver in receiver['actions']:
+            if 'actions' in receiver.keys():
+                for action_record in receiver['actions']:
+                    if 'action' in action_record.keys():
+                        if action_record['action']['tag'] == action_tag:
+                            return action_record['status']
+
     def cancel_action(self, uuid):
         return self.env.actions_cancel(uuid)
 
@@ -154,22 +179,6 @@ class API(object):
     def get_action_specs(self):
         results = self.env.actions_available()
         return _parse_action_specs(results)
-
-    def get_benchmark_action_specs(self):
-        action_specs = self.get_action_specs()
-        if not action_specs:
-            return action_specs
-
-        service_benchmarks = self.db.get_services_benchmarks()
-        for service in action_specs.keys()[:]:
-            if service not in service_benchmarks:
-                continue
-            for spec_name in action_specs[service].keys()[:]:
-                if spec_name not in service_benchmarks[service]:
-                    action_specs[service].pop(spec_name)
-            if not action_specs[service]:
-                action_specs.pop(service)
-        return action_specs
 
     def enqueue_action(self, action, receivers, params):
         result = self.env.actions_enqueue(action, receivers, params)
@@ -225,7 +234,7 @@ class ActionProperty(Dict):
         'number': float,
     }
     type_checks = {
-        basestring: 'string',
+        str: 'string',
         int: 'integer',
         bool: 'boolean',
         float: 'number',
